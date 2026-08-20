@@ -20,6 +20,7 @@ from trytond.protocols.wrappers import (
 from trytond.transaction import Transaction, check_access
 from trytond.wsgi import app
 
+from .editor import get_wopi_url
 from . import wopi_token
 
 LOCK_SECONDS = 30 * 60
@@ -218,7 +219,7 @@ def open_editor(request, pool, model, record, field):
     file_id, access_token = wopi_token.make(
         Transaction().database.name, Transaction().user, model, record, field,
         writable, name)
-    host_url = config.get('collabora', 'wopi_url')
+    host_url = get_wopi_url()
     collabora_url = config.get('collabora', 'url')
     if not host_url or not collabora_url:
         abort(HTTPStatus.SERVICE_UNAVAILABLE)

@@ -12,7 +12,17 @@ EDITABLE_EXTENSIONS = frozenset({
     '.csv', '.doc', '.docm', '.docx', '.fodg', '.fodp', '.fods', '.fodt',
     '.htm', '.html', '.odp', '.ods', '.odt', '.otp', '.ots', '.ott', '.ppt',
     '.pptm', '.pptx', '.rtf', '.txt', '.xls', '.xlsm', '.xlsx',
-    })
+})
+
+
+def get_wopi_url():
+    """Return the configured public URL of this WOPI host."""
+    url = config.get('collabora', 'wopi_url')
+    if url:
+        return url
+    return next((origin.strip() for origin in
+            config.get('web', 'cors', default='').splitlines()
+            if origin.strip()), None)
 
 
 def is_editable_filename(name):
@@ -26,7 +36,7 @@ def get_editor_url(model, record, field, name=None):
     Collabora URL and not a WOPI token.  It is therefore safe to expose on a
     record and can only be used by a browser with a valid Tryton session.
     """
-    url_root = config.get('collabora', 'wopi_url')
+    url_root = get_wopi_url()
     if not url_root or not record:
         return None
     database = Transaction().database.name
