@@ -15,6 +15,7 @@ URLs visible to the browser and to Collabora)::
 
     [collabora]
     url = https://office.example.com
+    # Optional when [web] cors contains the public Tryton URL.
     wopi_url = https://tryton.example.com
     wopi_secret = a-random-secret-with-at-least-32-bytes
     token_lifetime = 1800
@@ -22,6 +23,11 @@ URLs visible to the browser and to Collabora)::
 `wopi_secret` must be stored in the server configuration or a secret manager,
 never in the database.  Restrict the reverse proxy so only the Collabora
 server can call `/<database>/wopi/`; TLS is mandatory in production.
+
+If `wopi_url` is not set, the module uses the first non-empty origin configured
+in `[web] cors` (or `TRYTOND_WEB__CORS`).  Set `wopi_url` explicitly when the
+CORS list contains more than one origin or its first value is not Tryton's
+public URL.
 
 Opening an editor
 -----------------
