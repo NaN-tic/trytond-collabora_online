@@ -1,0 +1,45 @@
+Collabora Online WOPI host for Tryton
+=====================================
+
+This module exposes a WOPI host for one binary field of one Tryton record.
+It does not expose a file system, and consequently deliberately does not claim
+support for relative-file operations.  `DeleteFile` clears the binary field.
+`RenameFile` is available only if the binary field declares `filename`; it
+updates that filename field and retains its extension.
+
+Configuration
+-------------
+
+Add the following server configuration (the URLs must be the public HTTPS
+URLs visible to the browser and to Collabora)::
+
+    [collabora]
+    url = https://office.example.com
+    wopi_url = https://tryton.example.com
+    wopi_secret = a-random-secret-with-at-least-32-bytes
+    token_lifetime = 1800
+
+`wopi_secret` must be stored in the server configuration or a secret manager,
+never in the database.  Restrict the reverse proxy so only the Collabora
+server can call `/<database>/wopi/`; TLS is mandatory in production.
+
+Opening an editor
+-----------------
+
+Open this authenticated Tryton URL in a new browser tab::
+
+    /<database>/collabora/open/<model>/<record>/<binary-field>?name=<filename>
+
+The endpoint checks model, field and record rules and redirects to Collabora.
+It creates a short-lived, HMAC-signed capability for exactly that binary field;
+the browser user never supplies credentials to Collabora.  Set the URL action
+target to `new` in a client integration.
+
+The reusable `collabora_online.editor.get_editor_url()` function returns this
+launch URL.  The module also adds the calculated `Edit URL` field to
+`ir.attachment`; it is shown only for editable Collabora formats.
+
+The host implements CheckFileInfo, GetFile, PutFile, DeleteFile, RenameFile
+(where applicable), Lock, GetLock, RefreshLock, Unlock and UnlockAndRelock.
+Permissions are rechecked on every WOPI callback, so a revoked Tryton
+permission immediately stops access.
