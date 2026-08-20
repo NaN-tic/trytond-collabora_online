@@ -30,10 +30,11 @@ Open this authenticated Tryton URL in a new browser tab::
 
     /<database>/collabora/open/<model>/<record>/<binary-field>?name=<filename>
 
-The endpoint checks model, field and record rules and redirects to Collabora.
-It creates a short-lived, HMAC-signed capability for exactly that binary field;
-the browser user never supplies credentials to Collabora.  Set the URL action
-target to `new` in a client integration.
+The endpoint checks model, field and record rules, reads Collabora's discovery
+document and posts to its versioned edit action.  It creates a short-lived,
+HMAC-signed capability for exactly that binary field; the browser user never
+supplies credentials to Collabora.  Set the URL action target to `new` in a
+client integration.
 
 The reusable `collabora_online.editor.get_editor_url()` function returns this
 launch URL.  The module also adds the calculated `Edit URL` field to

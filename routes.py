@@ -1,11 +1,14 @@
 import datetime as dt
+from html import escape
 import json
 import mimetypes
 import os
-from urllib.parse import quote, urlencode
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote, urlsplit
+from urllib.request import Request, urlopen
+from xml.etree import ElementTree
 
 from werkzeug.exceptions import abort
-from werkzeug.utils import redirect
 from werkzeug.wrappers import Response
 
 from trytond.config import config
@@ -103,9 +106,17 @@ def _claim_record(pool, claim, write=False):
 
 
 def _version(record):
+    return _last_modified(record) or str(record.id)
+
+
+def _last_modified(record):
     value = getattr(record, 'write_date', None) or getattr(
         record, 'create_date', None)
-    return str(value.isoformat() if value else record.id)
+    if not value:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=dt.timezone.utc)
+    return value.isoformat().replace('+00:00', 'Z')
 
 
 def _response(data=b'', status=200, **headers):
@@ -145,6 +156,51 @@ def _lock_value(request):
     return value
 
 
+def _editor_action_url(collabora_url, name, wopi_src):
+    """Get the versioned edit URL advertised by this Collabora instance."""
+    discovery_url = collabora_url.rstrip('/') + '/hosting/discovery'
+    timeout = config.getint('collabora', 'discovery_timeout', default=10)
+    try:
+        request = Request(discovery_url, headers={'Accept': 'application/xml'})
+        with urlopen(request, timeout=timeout) as response:
+            discovery = ElementTree.fromstring(response.read(1024 * 1024))
+    except (HTTPError, URLError, OSError, ElementTree.ParseError):
+        abort(HTTPStatus.SERVICE_UNAVAILABLE)
+
+    extension = os.path.splitext(name)[1].lower().lstrip('.')
+    action_url = next((action.get('urlsrc') for action in discovery.iter('action')
+            if action.get('name') == 'edit'
+            and action.get('ext', '').lower() == extension), None)
+    if not action_url:
+        abort(HTTPStatus.NOT_IMPLEMENTED)
+
+    configured = urlsplit(collabora_url)
+    action = urlsplit(action_url)
+    if (action.scheme, action.netloc) != (
+            configured.scheme, configured.netloc):
+        abort(HTTPStatus.BAD_GATEWAY)
+    wopi_src = quote(wopi_src, safe='')
+    if '{{WOPISrc}}' in action_url:
+        return action_url.replace('{{WOPISrc}}', wopi_src)
+    # Current Collabora discovery documents publish a URL ending in '?' and
+    # require the WOPI host to append this query parameter itself.
+    if action_url.endswith(('?', '&')):
+        return action_url + 'WOPISrc=' + wopi_src
+    return action_url + ('&' if '?' in action_url else '?') + 'WOPISrc=' + wopi_src
+
+
+def _editor_form(action_url, access_token, expires):
+    """POST the token so CODE retains it for all subsequent WOPI requests."""
+    return Response('''<!doctype html>
+<html><body onload="document.forms[0].submit()">
+<form action="%s" enctype="multipart/form-data" method="post">
+<input type="hidden" name="access_token" value="%s">
+<input type="hidden" name="access_token_ttl" value="%s">
+</form></body></html>''' % (
+            escape(action_url, quote=True), escape(access_token, quote=True),
+            expires * 1000), content_type='text/html')
+
+
 @app.route('/<database_name>/collabora/open/<string:model>/<int:record>/<field>',
     methods={'GET'})
 @app.auth_required
@@ -168,14 +224,10 @@ def open_editor(request, pool, model, record, field):
         abort(HTTPStatus.SERVICE_UNAVAILABLE)
     wopi_src = '%s/%s/wopi/files/%s' % (
         host_url.rstrip('/'), quote(Transaction().database.name, safe=''), file_id)
-    # Collabora's browser route accepts the standard WOPISrc and access_token
-    # parameters.  This response is suitable for an ir.action.url with target
-    # "new", so no Sao integration or second login is involved.
-    url = '%s/browser/dist/cool.html?%s' % (
-        collabora_url.rstrip('/'), urlencode({
-            'WOPISrc': wopi_src, 'access_token': access_token,
-            'permission': 'edit' if writable else 'view'}))
-    return redirect(url)
+    action_url = _editor_action_url(collabora_url, name, wopi_src)
+    expires = wopi_token.check(
+        Transaction().database.name, file_id, access_token)['expires']
+    return _editor_form(action_url, access_token, expires)
 
 
 @app.route('/<database_name>/wopi/files/<file_id>', methods={'GET', 'POST'})
@@ -186,9 +238,11 @@ def file(request, pool, file_id):
         request.args.get('access_token', ''))
     Model, binary, record = _claim_record(pool, claim)
     if request.method == 'GET':
+        filename = _rename_field(Model, binary)
+        name = getattr(record, filename) if filename else None
+        name = _safe_name(name or claim['name'], claim['field'])
         extension = mimetypes.guess_extension(
-            mimetypes.guess_type(claim['name'])[0] or '') or ''
-        name = claim['name']
+            mimetypes.guess_type(name)[0] or '') or ''
         if extension and not name.lower().endswith(extension):
             name += extension
         return _json_response({
@@ -203,6 +257,7 @@ def file(request, pool, file_id):
                     record, Model._fields[binary.filename])),
             'UserCanWrite': bool(claim['writable']),
             'UserFriendlyName': str(claim['user']),
+            'LastModifiedTime': _last_modified(record),
             'Version': _version(record),
             'ReadOnly': not claim['writable'],
             'SupportsExtendedLockLength': True,
@@ -283,7 +338,15 @@ def file(request, pool, file_id):
                 Model.write([record], {filename: new_name})
         except AccessError:
             abort(403)
-        return {'Name': stem}
+        record = Model(record.id)
+        return _json_response({
+            'Name': stem,
+            # Collabora uses this optional value to keep using the same WOPI
+            # resource after a rename.  The file ID deliberately does not
+            # change when only the filename field is updated.
+            'Url': request.url,
+            'LastModifiedTime': _last_modified(record),
+            }, X_WOPI_ItemVersion=_version(record))
     abort(501)
 
 
@@ -300,7 +363,9 @@ def contents(request, pool, file_id):
         content_type = (
             mimetypes.guess_type(claim['name'])[0]
             or 'application/octet-stream')
-        return _response(data, Content_Type=content_type)
+        return _response(
+            data, Content_Type=content_type,
+            X_WOPI_ItemVersion=_version(record))
     if request.headers.get('X-WOPI-Override', '').upper() != 'PUT':
         abort(501)
     Model, _binary, record = _claim_record(pool, claim, write=True)
@@ -315,4 +380,7 @@ def contents(request, pool, file_id):
             Model.write([record], {claim['field']: request.get_data()})
     except AccessError:
         abort(403)
-    return _response(X_WOPI_ItemVersion=_version(record))
+    record = Model(record.id)
+    return _json_response({
+        'LastModifiedTime': _last_modified(record),
+        }, X_WOPI_ItemVersion=_version(record))
