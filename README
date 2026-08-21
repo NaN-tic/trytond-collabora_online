@@ -39,12 +39,12 @@ Open this authenticated Tryton URL in a new browser tab::
 The endpoint checks model, field and record rules, reads Collabora's discovery
 document and posts to its versioned edit action.  It creates a short-lived,
 HMAC-signed capability for exactly that binary field; the browser user never
-supplies credentials to Collabora.  Set the URL action target to `new` in a
-client integration.
+supplies credentials to Collabora.
 
 The reusable `collabora_online.editor.get_editor_url()` function returns this
-launch URL.  The module also adds the calculated `Edit URL` field to
-`ir.attachment`; it is shown only for editable Collabora formats.
+launch URL.  The module also adds an `Open` button to `ir.attachment`; it
+returns an `ir.action.url`, which clients open in a new browser tab, and is
+shown only for editable Collabora formats.
 
 The host implements CheckFileInfo, GetFile, PutFile, DeleteFile, RenameFile
 (where applicable), Lock, GetLock, RefreshLock, Unlock and UnlockAndRelock.

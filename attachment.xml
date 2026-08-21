@@ -6,5 +6,20 @@
             <field name="inherit" ref="ir.attachment_view_form"/>
             <field name="name">attachment_form</field>
         </record>
+        <record model="ir.ui.view" id="attachment_view_form_preview">
+            <field name="model">ir.attachment</field>
+            <field name="inherit" ref="ir.attachment_view_form_preview"/>
+            <field name="name">attachment_form_preview</field>
+        </record>
+        <record model="ir.ui.view" id="attachment_view_list">
+            <field name="model">ir.attachment</field>
+            <field name="inherit" ref="ir.attachment_view_tree"/>
+            <field name="name">attachment_list</field>
+        </record>
+        <record model="ir.model.button" id="attachment_open_button">
+            <field name="model">ir.attachment</field>
+            <field name="name">open</field>
+            <field name="string">Open</field>
+        </record>
     </data>
 </tryton>
