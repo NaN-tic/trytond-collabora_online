@@ -22,4 +22,11 @@
             <field name="string">Open</field>
         </record>
     </data>
+    <data depends="papyrus">
+        <record model="ir.ui.view" id="attachment_view_list_papyrus">
+            <field name="model">ir.attachment</field>
+            <field name="inherit" ref="papyrus.attachment_view_tree"/>
+            <field name="name">attachment_list_papyrus</field>
+        </record>
+    </data>
 </tryton>
