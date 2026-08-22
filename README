@@ -18,11 +18,16 @@ URLs visible to the browser and to Collabora)::
     # Optional when [web] cors contains the public Tryton URL.
     wopi_url = https://tryton.example.com
     wopi_secret = a-random-secret-with-at-least-32-bytes
-    token_lifetime = 1800
+    lease_time = 1800
 
 `wopi_secret` must be stored in the server configuration or a secret manager,
 never in the database.  Restrict the reverse proxy so only the Collabora
 server can call `/<database>/wopi/`; TLS is mandatory in production.
+
+`lease_time` is the number of seconds that an inactive editor session remains
+valid.  Every authenticated WOPI request renews the lease.  For compatibility,
+the old `token_lifetime` setting is used as a fallback when `lease_time` is not
+set.
 
 If `wopi_url` is not set, the module uses the first non-empty origin configured
 in `[web] cors` (or `TRYTOND_WEB__CORS`).  Set `wopi_url` explicitly when the
@@ -48,5 +53,8 @@ shown only for editable Collabora formats.
 
 The host implements CheckFileInfo, GetFile, PutFile, DeleteFile, RenameFile
 (where applicable), Lock, GetLock, RefreshLock, Unlock and UnlockAndRelock.
+All users opening the same record and binary field share a stable WOPI file
+identifier, which lets Collabora place them in the same co-authoring session.
+Each user still has an independent signed access token and lease.
 Permissions are rechecked on every WOPI callback, so a revoked Tryton
 permission immediately stops access.

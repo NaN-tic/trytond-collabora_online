@@ -190,23 +190,34 @@ def _editor_action_url(collabora_url, name, wopi_src):
     return action_url + ('&' if '?' in action_url else '?') + 'WOPISrc=' + wopi_src
 
 
-def _editor_form(action_url, access_token, expires):
+def _editor_form(action_url, access_token):
     """POST the token so CODE retains it for all subsequent WOPI requests."""
     return Response('''<!doctype html>
 <html><body onload="document.forms[0].submit()">
 <form action="%s" enctype="multipart/form-data" method="post">
 <input type="hidden" name="access_token" value="%s">
-<input type="hidden" name="access_token_ttl" value="%s">
+<input type="hidden" name="access_token_ttl" value="0">
 </form></body></html>''' % (
-            escape(action_url, quote=True), escape(access_token, quote=True),
-            expires * 1000), content_type='text/html')
+            escape(action_url, quote=True), escape(access_token, quote=True)),
+        content_type='text/html')
+
+
+def _wopi_claim(request, pool, file_id):
+    access_token = request.args.get('access_token', '')
+    claim = wopi_token.check(request.view_args['database_name'], file_id,
+        access_token)
+    Lease = pool.get('collabora.online.lease')
+    if not Lease.renew(access_token):
+        abort(401)
+    return claim
 
 
 @app.route('/<database_name>/collabora/open/<string:model>/<int:record>/<field>',
     methods={'GET'})
 @app.auth_required
 @with_pool
-@with_transaction(user='request', context={'_check_access': True})
+@with_transaction(
+    readonly=False, user='request', context={'_check_access': True})
 def open_editor(request, pool, model, record, field):
     Model, binary = _binary_field(pool, model, field)
     try:
@@ -219,6 +230,8 @@ def open_editor(request, pool, model, record, field):
     file_id, access_token = wopi_token.make(
         Transaction().database.name, Transaction().user, model, record, field,
         writable, name)
+    Lease = pool.get('collabora.online.lease')
+    Lease.start(access_token)
     host_url = get_wopi_url()
     collabora_url = config.get('collabora', 'url')
     if not host_url or not collabora_url:
@@ -226,17 +239,14 @@ def open_editor(request, pool, model, record, field):
     wopi_src = '%s/%s/wopi/files/%s' % (
         host_url.rstrip('/'), quote(Transaction().database.name, safe=''), file_id)
     action_url = _editor_action_url(collabora_url, name, wopi_src)
-    expires = wopi_token.check(
-        Transaction().database.name, file_id, access_token)['expires']
-    return _editor_form(action_url, access_token, expires)
+    return _editor_form(action_url, access_token)
 
 
 @app.route('/<database_name>/wopi/files/<file_id>', methods={'GET', 'POST'})
 @with_pool
 @with_transaction(readonly=False)
 def file(request, pool, file_id):
-    claim = wopi_token.check(request.view_args['database_name'], file_id,
-        request.args.get('access_token', ''))
+    claim = _wopi_claim(request, pool, file_id)
     Model, binary, record = _claim_record(pool, claim)
     if request.method == 'GET':
         filename = _rename_field(Model, binary)
@@ -356,8 +366,7 @@ def file(request, pool, file_id):
 @with_pool
 @with_transaction(readonly=False)
 def contents(request, pool, file_id):
-    claim = wopi_token.check(request.view_args['database_name'], file_id,
-        request.args.get('access_token', ''))
+    claim = _wopi_claim(request, pool, file_id)
     if request.method == 'GET':
         _Model, _binary, record = _claim_record(pool, claim)
         data = getattr(record, claim['field']) or b''
