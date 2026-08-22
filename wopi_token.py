@@ -1,18 +1,19 @@
-"""Stateless, short-lived WOPI capabilities.
+"""Signed WOPI capabilities for stable document identifiers.
 
-The file identifier is an encoded claim and the access token is its HMAC.  It
-is intentionally not a Tryton session token: Collabora only receives the
-minimum capability needed to operate on one binary field.
+The file identifier contains only the document identity so all users share the
+same WOPISrc.  The signed access token contains the user-specific permissions.
+Its lifetime is managed by ``collabora.online.lease``.
 """
 import base64
 import binascii
 import hashlib
 import hmac
 import json
-import time
+import secrets
+
+from werkzeug.exceptions import abort
 
 from trytond.config import config
-from werkzeug.exceptions import abort
 
 
 def _encode(value):
@@ -32,42 +33,51 @@ def _secret():
     return secret.encode('utf-8')
 
 
+def _signature(database, file_id, token_claim):
+    return _encode(hmac.new(
+            _secret(), ('%s:%s:%s' % (
+                    database, file_id, token_claim)).encode('ascii'),
+            hashlib.sha256).digest())
+
+
 def make(database, user, model, record, field, writable, name):
-    lifetime = config.getint('collabora', 'token_lifetime', default=1800)
-    now = int(time.time())
-    claim = {
+    file_claim = {
         'database': database,
-        'expires': now + lifetime,
         'field': field,
         'model': model,
-        'name': name,
         'record': record,
+        }
+    token_claim = {
+        'name': name,
+        'nonce': secrets.token_urlsafe(16),
         'user': user,
         'writable': bool(writable),
         }
     file_id = _encode(json.dumps(
-            claim, sort_keys=True, separators=(',', ':')).encode('utf-8'))
-    signature = hmac.new(
-        _secret(), ('%s:%s' % (database, file_id)).encode('ascii'),
-        hashlib.sha256).digest()
-    return file_id, _encode(signature)
+            file_claim, sort_keys=True,
+            separators=(',', ':')).encode('utf-8'))
+    token_claim = _encode(json.dumps(
+            token_claim, sort_keys=True,
+            separators=(',', ':')).encode('utf-8'))
+    access_token = '%s.%s' % (
+        token_claim, _signature(database, file_id, token_claim))
+    return file_id, access_token
 
 
 def check(database, file_id, access_token):
     try:
-        expected = _encode(hmac.new(
-                _secret(), ('%s:%s' % (database, file_id)).encode('ascii'),
-                hashlib.sha256).digest())
-        if not hmac.compare_digest(expected, access_token):
+        token_claim, separator, signature = access_token.partition('.')
+        if (not separator or not hmac.compare_digest(
+                    _signature(database, file_id, token_claim), signature)):
             raise ValueError
-        claim = json.loads(_decode(file_id))
-        required = {'database', 'expires', 'field', 'model', 'name', 'record',
-            'user', 'writable'}
-        if (set(claim) != required or claim['database'] != database
-                or not isinstance(claim['expires'], int)
-                or claim['expires'] < int(time.time())):
+        file_claim = json.loads(_decode(file_id))
+        token_claim = json.loads(_decode(token_claim))
+        if (set(file_claim) != {'database', 'field', 'model', 'record'}
+                or file_claim['database'] != database
+                or set(token_claim) != {'name', 'nonce', 'user', 'writable'}
+                or not isinstance(token_claim['nonce'], str)):
             raise ValueError
     except (TypeError, ValueError, UnicodeError, binascii.Error,
             json.JSONDecodeError):
         abort(401)
-    return claim
+    return file_claim | token_claim
