@@ -22,11 +22,20 @@
             <field name="string">Open</field>
         </record>
     </data>
-    <data depends="papyrus">
-        <record model="ir.ui.view" id="attachment_view_list_papyrus">
+    <data depends="office">
+        <record model="ir.ui.view" id="attachment_view_form_office">
             <field name="model">ir.attachment</field>
-            <field name="inherit" ref="papyrus.attachment_view_tree"/>
-            <field name="name">attachment_list_papyrus</field>
+            <field name="inherit" ref="office.view_attachment_form"/>
+            <field name="name">attachment_form_office</field>
+        </record>
+        <record model="ir.ui.view" id="attachment_view_list_office">
+            <field name="model">ir.attachment</field>
+            <field name="inherit" ref="office.view_attachment_list"/>
+            <field name="name">attachment_list_office</field>
+        </record>
+        <record model="ir.action.url" id="action_open_office_document">
+            <field name="name">Open in Collabora Online</field>
+            <field name="url">/</field>
         </record>
     </data>
 </tryton>
