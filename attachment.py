@@ -37,6 +37,8 @@ class Attachment(metaclass=PoolMeta):
     @classmethod
     @ModelView.button
     def open(cls, attachments):
+        if not attachments:
+            return
         attachment, = attachments
         return {
             'type': 'ir.action.url',
