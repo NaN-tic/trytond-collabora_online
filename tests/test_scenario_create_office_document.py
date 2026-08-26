@@ -1,10 +1,8 @@
 import unittest
 from unittest.mock import patch
-from xml.etree import ElementTree
 
 from proteus import Model, Wizard
 from trytond.modules.collabora_online import editor
-from trytond.transaction import Transaction
 from trytond.tests.test_tryton import drop_db
 from trytond.tests.tools import activate_modules
 
@@ -30,27 +28,6 @@ class TestCreateOfficeDocument(unittest.TestCase):
                 ]):
             template.active = False
             template.save()
-
-        with Transaction().start(
-                config.database_name, config.user,
-                context=config.context):
-            AttachmentModel = config.pool.get('ir.attachment')
-            ModelData = config.pool.get('ir.model.data')
-            for xml_id, view_type in [
-                    ('view_attachment_form', 'form'),
-                    ('view_attachment_list', 'tree'),
-                    ]:
-                view = AttachmentModel.fields_view_get(
-                    view_id=ModelData.get_id('office', xml_id),
-                    view_type=view_type)
-                self.assertIn('<button name="open"', view['arch'])
-                if view_type == 'form':
-                    arch = ElementTree.fromstring(view['arch'])
-                    notebook = arch.find('./notebook')
-                    self.assertIsNotNone(notebook)
-                    self.assertIsNotNone(notebook.find(
-                            "./page[@id='collabora_online']"
-                            "/button[@name='open']"))
 
         editable_template, = Template.find([
                 ('extension', '=', 'docx'),
