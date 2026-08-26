@@ -21,6 +21,7 @@ class Attachment(metaclass=PoolMeta):
                 'open': {
                     'invisible': ~Bool(Eval('collabora_url')),
                     'depends': ['collabora_url'],
+                    'icon': 'tryton-open',
                     },
                 })
 
