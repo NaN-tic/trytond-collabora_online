@@ -69,7 +69,7 @@ def _writable(pool, model_name, field_name, record, field):
     readonly = field.states.get('readonly')
     if readonly:
         values = record.__class__.read(
-            [record.id], list(field.depends | {'id'}))[0]
+            [record.id], list(field.edition_depends | {'id'}))[0]
         values['context'] = Transaction().context
         if PYSONDecoder(values).decode(PYSONEncoder().encode(readonly)):
             return False
